@@ -1,0 +1,11 @@
+openapi: 3.0.0
+info:
+  title: DXD Audit Kit API
+  version: 1.0.0
+paths:
+  /logs:
+    post:
+      summary: Ingest audit log
+      responses:
+        '200':
+          description: OK
