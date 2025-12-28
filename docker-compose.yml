@@ -1,0 +1,35 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: dxd-audit-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: dxd_audit
+      POSTGRES_PASSWORD: # Đưa mật khẩu của bạn vào
+      POSTGRES_DB: dxd_audit
+    ports:
+      - "5432:5432"
+    volumes:
+      - dxd-audit-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dxd_audit -d dxd_audit"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Sau này sẽ mở
+  # api:
+  #   build: .
+  #   container_name: dxd-audit-api
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #   environment:
+  #     DATABASE_URL: postgres://dxd_audit:@postgres:5432/dxd_audit?sslmode=disable
+  #   ports:
+  #     - "8080:8080"
+
+volumes:
+  dxd-audit-postgres-data:
