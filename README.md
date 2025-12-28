@@ -1,19 +1,46 @@
-# DXD Audit Kit
+# dxd-audit-kit
 
-Bộ công cụ Audit Log chuyên dụng cho DXD Labs.
+`dxd-audit-kit` is a Go + Postgres toolkit for **audit logs**, **verification**, and **anomaly detection** around digital signatures and e-sign workflows.
 
-## Cấu trúc dự án
+- 🔐 Verify signed documents and signatures
+- 🧾 Generate structured, queryable audit trails
+- 🕵️ Detect suspicious signing activity with rules and AI
 
-- `cmd/`: Entry point cho CLI và Server.
-- `internal/`: Logic cốt lõi (verify, audit, ingest, analyze, config, logger).
-- `pkg/dxdaudit/`: Thư viện API công khai.
-- `migrations/`: Cấu trúc cơ sở dữ liệu Postgres.
-- `api/`: OpenAPI Specification.
-- `docker/`: Cấu hình Docker & Docker Compose.
+## Features
 
-## Khởi chạy nhanh
+- Document & signature verification (hash, certificates, timestamps)
+- Normalized audit log schema on Postgres
+- CLI and Go library for easy integration into existing e-sign platforms
+- Pluggable rules engine for anomaly detection (IP, geo, time, device, etc.)
 
+## Tech stack
+
+- Language: Go
+- Database: PostgreSQL
+- Interfaces: CLI (`dxd-audit-cli`) and Go package (`github.com/dxdlabs/dxd-audit-kit/pkg/dxdaudit`)
+
+## Getting started
+
+### 1. Khởi động Database
+Dự án sử dụng Postgres. Bạn có thể khởi động nhanh bằng Docker Compose:
 ```bash
-cd docker
 docker-compose up -d
 ```
+
+### 2. Cấu hình Database
+Mặc định CLI sẽ kết nối tới `localhost:5432`. Nếu chạy trong môi trường Docker hoặc cần kết nối tới host khác, hãy đặt biến môi trường `DATABASE_URL`:
+```bash
+export DATABASE_URL="postgres://dxd_audit:dxd_audit_password@postgres:5432/dxd_audit?sslmode=disable"
+```
+
+### 3. Chạy CLI
+**Verify tài liệu:**
+```bash
+go run ./cmd/dxd-audit-cli verify --file path/to/document.pdf
+```
+
+**Ghi log sự kiện ký:**
+```bash
+go run ./cmd/dxd-audit-cli log-event --file path/to/document.pdf --signer-email user@example.com --ip 1.2.3.4
+```
+
