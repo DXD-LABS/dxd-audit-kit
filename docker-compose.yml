@@ -7,7 +7,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: dxd_audit
-      POSTGRES_PASSWORD: # Đưa mật khẩu của bạn vào
+      POSTGRES_PASSWORD: dxd_audit_password # Đưa mật khẩu của bạn vào
       POSTGRES_DB: dxd_audit
     ports:
       - "5432:5432"
