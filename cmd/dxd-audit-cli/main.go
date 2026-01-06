@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/dxdlabs/dxd-audit-kit/internal/audit"
 	"github.com/dxdlabs/dxd-audit-kit/internal/config"
 	"github.com/dxdlabs/dxd-audit-kit/internal/db"
+	"github.com/dxdlabs/dxd-audit-kit/internal/report"
 	"github.com/dxdlabs/dxd-audit-kit/internal/verify"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
@@ -29,6 +31,7 @@ func main() {
 
 	rootCmd.AddCommand(verifyCmd())
 	rootCmd.AddCommand(logEventCmd())
+	rootCmd.AddCommand(reportCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
@@ -155,6 +158,117 @@ func logEventCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&email, "signer-email", "e", "", "Email of the signer")
 	cmd.Flags().StringVarP(&ip, "ip", "i", "", "IP address of the signer")
 	cmd.Flags().StringVarP(&ua, "user-agent", "u", "", "User agent of the signer")
+
+	return cmd
+}
+
+func reportCmd() *cobra.Command {
+	var format string
+
+	cmd := &cobra.Command{
+		Use:   "report",
+		Short: "Generate audit reports",
+	}
+
+	cmd.PersistentFlags().StringVar(&format, "format", "json", "Output format (json|csv)")
+
+	cmd.AddCommand(documentReportCmd(&format))
+	cmd.AddCommand(signerReportCmd(&format))
+
+	return cmd
+}
+
+func documentReportCmd(format *string) *cobra.Command {
+	var docID string
+
+	cmd := &cobra.Command{
+		Use:   "document",
+		Short: "Generate report for a specific document",
+		Run: func(cmd *cobra.Command, args []string) {
+			if docID == "" {
+				log.Fatal("--document-id is required")
+			}
+
+			initRepo()
+			reporter := report.NewReporter(repo)
+			ctx := context.Background()
+
+			docReport, err := reporter.BuildDocumentReport(ctx, docID)
+			if err != nil {
+				log.Fatalf("Failed to build report: %v", err)
+			}
+
+			if *format == "csv" {
+				err = reporter.ExportCSV(ctx, os.Stdout, docReport.Events)
+			} else {
+				err = reporter.ExportJSON(os.Stdout, docReport)
+			}
+
+			if err != nil {
+				log.Fatalf("Failed to export report: %v", err)
+			}
+		},
+	}
+
+	cmd.Flags().StringVar(&docID, "document-id", "", "ID of the document")
+	return cmd
+}
+
+func signerReportCmd(format *string) *cobra.Command {
+	var email string
+	var fromStr string
+	var toStr string
+
+	cmd := &cobra.Command{
+		Use:   "signer",
+		Short: "Generate report for a specific signer",
+		Run: func(cmd *cobra.Command, args []string) {
+			if email == "" {
+				log.Fatal("--email is required")
+			}
+
+			var from, to *time.Time
+			layout := "2006-01-02"
+
+			if fromStr != "" {
+				t, err := time.Parse(layout, fromStr)
+				if err != nil {
+					log.Fatalf("Invalid --from date (expected YYYY-MM-DD): %v", err)
+				}
+				from = &t
+			}
+			if toStr != "" {
+				t, err := time.Parse(layout, toStr)
+				if err != nil {
+					log.Fatalf("Invalid --to date (expected YYYY-MM-DD): %v", err)
+				}
+				to = &t
+			}
+
+			initRepo()
+			reporter := report.NewReporter(repo)
+			ctx := context.Background()
+
+			signerReport, err := reporter.BuildSignerReport(ctx, email, from, to)
+			if err != nil {
+				log.Fatalf("Failed to build report: %v", err)
+			}
+
+			if *format == "csv" {
+				err = reporter.ExportCSV(ctx, os.Stdout, signerReport.Events)
+			} else {
+				err = reporter.ExportJSON(os.Stdout, signerReport)
+			}
+
+			if err != nil {
+				log.Fatalf("Failed to export report: %v", err)
+			}
+		},
+	}
+
+	cmd.Flags().StringVar(&email, "email", "", "Email of the signer")
+	cmd.Flags().StringVar(&fromStr, "from", "", "Start date (YYYY-MM-DD)")
+	cmd.Flags().StringVar(&toStr, "to", "", "End date (YYYY-MM-DD)")
 
 	return cmd
 }
