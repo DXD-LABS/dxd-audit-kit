@@ -16,6 +16,11 @@ type Repository interface {
 	LogSignEvent(ctx context.Context, ev SignEvent) (SignEvent, error)
 	ListEventsByDocument(ctx context.Context, docID uuid.UUID) ([]SignEvent, error)
 	ListEventsBySigner(ctx context.Context, email string, from, to *time.Time) ([]SignEvent, error)
+
+	// Anomaly
+	SaveAnomalyScore(ctx context.Context, s AnomalyScore) error
+	ListAnomaliesByDocument(ctx context.Context, docID uuid.UUID) ([]AnomalyScore, error)
+	ListAnomaliesBySigner(ctx context.Context, email string) ([]AnomalyScore, error)
 }
 
 type postgresRepo struct {
@@ -160,4 +165,65 @@ func (r *postgresRepo) ListEventsBySigner(ctx context.Context, email string, fro
 		events = append(events, ev)
 	}
 	return events, nil
+}
+
+func (r *postgresRepo) SaveAnomalyScore(ctx context.Context, s AnomalyScore) error {
+	if s.ID == uuid.Nil {
+		s.ID = uuid.New()
+	}
+	query := `INSERT INTO anomaly_scores (id, sign_event_id, score, labels, created_at)
+              VALUES ($1, $2, $3, $4, CASE WHEN $5 = '0001-01-01 00:00:00+00'::timestamptz THEN NOW() ELSE $5 END)`
+	_, err := r.db.ExecContext(ctx, query, s.ID, s.SignEventID, s.Score, s.Labels, s.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("failed to save anomaly score: %w", err)
+	}
+	return nil
+}
+
+func (r *postgresRepo) ListAnomaliesByDocument(ctx context.Context, docID uuid.UUID) ([]AnomalyScore, error) {
+	query := `SELECT a.id, a.sign_event_id, a.score, a.labels, a.created_at
+              FROM anomaly_scores a
+              JOIN sign_events s ON a.sign_event_id = s.id
+              WHERE s.document_id = $1
+              ORDER BY a.created_at DESC`
+	rows, err := r.db.QueryContext(ctx, query, docID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list anomalies by document: %w", err)
+	}
+	defer rows.Close()
+
+	var scores []AnomalyScore
+	for rows.Next() {
+		var s AnomalyScore
+		err := rows.Scan(&s.ID, &s.SignEventID, &s.Score, &s.Labels, &s.CreatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan anomaly score: %w", err)
+		}
+		scores = append(scores, s)
+	}
+	return scores, nil
+}
+
+func (r *postgresRepo) ListAnomaliesBySigner(ctx context.Context, email string) ([]AnomalyScore, error) {
+	query := `SELECT a.id, a.sign_event_id, a.score, a.labels, a.created_at
+              FROM anomaly_scores a
+              JOIN sign_events s ON a.sign_event_id = s.id
+              WHERE s.signer_email = $1
+              ORDER BY a.created_at DESC`
+	rows, err := r.db.QueryContext(ctx, query, email)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list anomalies by signer: %w", err)
+	}
+	defer rows.Close()
+
+	var scores []AnomalyScore
+	for rows.Next() {
+		var s AnomalyScore
+		err := rows.Scan(&s.ID, &s.SignEventID, &s.Score, &s.Labels, &s.CreatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan anomaly score: %w", err)
+		}
+		scores = append(scores, s)
+	}
+	return scores, nil
 }

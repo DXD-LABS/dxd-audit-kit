@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/dxdlabs/dxd-audit-kit/internal/analyze"
 	"github.com/dxdlabs/dxd-audit-kit/internal/audit"
 	"github.com/dxdlabs/dxd-audit-kit/internal/config"
 	"github.com/dxdlabs/dxd-audit-kit/internal/db"
@@ -32,6 +34,7 @@ func main() {
 	rootCmd.AddCommand(verifyCmd())
 	rootCmd.AddCommand(logEventCmd())
 	rootCmd.AddCommand(reportCmd())
+	rootCmd.AddCommand(analyzeCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
@@ -270,5 +273,59 @@ func signerReportCmd(format *string) *cobra.Command {
 	cmd.Flags().StringVar(&fromStr, "from", "", "Start date (YYYY-MM-DD)")
 	cmd.Flags().StringVar(&toStr, "to", "", "End date (YYYY-MM-DD)")
 
+	return cmd
+}
+
+func analyzeCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "analyze",
+		Short: "Analyze documents or signers for anomalies",
+	}
+
+	cmd.AddCommand(analyzeDocumentCmd())
+	return cmd
+}
+
+func analyzeDocumentCmd() *cobra.Command {
+	var docIDStr string
+
+	cmd := &cobra.Command{
+		Use:   "document",
+		Short: "Analyze a specific document for anomalies",
+		Run: func(cmd *cobra.Command, args []string) {
+			if docIDStr == "" {
+				log.Fatal("--document-id is required")
+			}
+
+			docID, err := uuid.Parse(docIDStr)
+			if err != nil {
+				log.Fatalf("Invalid document-id: %v", err)
+			}
+
+			initRepo()
+			ctx := context.Background()
+
+			fmt.Printf("Analyzing document %s...\n", docID)
+			results, err := analyze.AnalyzeDocument(ctx, repo, docID)
+			if err != nil {
+				log.Fatalf("Analysis failed: %v", err)
+			}
+
+			if len(results) == 0 {
+				fmt.Println("No anomalies found.")
+				return
+			}
+
+			fmt.Printf("Found %d anomalies:\n", len(results))
+			fmt.Printf("%-36s | %-5s | %s\n", "EVENT ID", "SCORE", "LABELS")
+			fmt.Println(strings.Replace(fmt.Sprintf("%36s-+-%5s-+-%s", "", "", ""), " ", "-", -1))
+
+			for _, r := range results {
+				fmt.Printf("%-36s | %-5.2f | %s\n", r.SignEventID, r.Score, string(r.Labels))
+			}
+		},
+	}
+
+	cmd.Flags().StringVar(&docIDStr, "document-id", "", "ID of the document")
 	return cmd
 }

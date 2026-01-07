@@ -30,3 +30,12 @@ type SignEvent struct {
 	Extra       json.RawMessage `json:"extra,omitempty"`
 	SignedAt    time.Time       `json:"signed_at"`
 }
+
+// AnomalyScore đại diện cho điểm số bất thường của một sự kiện ký
+type AnomalyScore struct {
+	ID          uuid.UUID       `json:"id"`
+	SignEventID uuid.UUID       `json:"sign_event_id"`
+	Score       float32         `json:"score"`
+	Labels      json.RawMessage `json:"labels"`
+	CreatedAt   time.Time       `json:"created_at"`
+}
