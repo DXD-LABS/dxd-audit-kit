@@ -90,3 +90,43 @@ e3b0c442...,user@example.com,2023-10-27T10:05:00Z,1.2.3.4,adobe
 e3b0c442...,user@example.com,2023-10-27T11:00:00Z,5.6.7.8,docusign
 ```
 
+### 5. Anomaly Detection
+Hệ thống hỗ trợ phân tích các sự kiện ký để phát hiện các dấu hiệu bất thường dựa trên các quy tắc (rules):
+- **Night-time signing:** Ký vào khung giờ lạ (22:00 - 06:00).
+- **Multi-IP signing:** Một người ký sử dụng nhiều địa chỉ IP khác nhau trong một khoảng thời gian ngắn (1 giờ).
+
+**Phân tích tài liệu:**
+```bash
+go run ./cmd/dxd-audit-cli analyze document --document-id <UUID>
+```
+
+**Xem kết quả trong Report:**
+Khi chạy lệnh `report`, thông tin về anomaly sẽ được nhúng trực tiếp vào output JSON.
+```bash
+go run ./cmd/dxd-audit-cli report document --document-id <UUID> --format json
+```
+
+*Ví dụ JSON Output với Anomaly:*
+```json
+{
+  "document": { ... },
+  "events": [ ... ],
+  "anomalies": [
+    {
+      "sign_event_id": "...",
+      "score": 0.3,
+      "labels": { "night_time": true },
+      "created_at": "..."
+    }
+  ],
+  "anomaly_summary": {
+    "anomaly_count": 1,
+    "max_score": 0.3,
+    "avg_score": 0.3,
+    "common_labels": {
+      "night_time": 1
+    }
+  }
+}
+```
+
