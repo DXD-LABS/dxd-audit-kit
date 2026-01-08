@@ -179,6 +179,16 @@ func (r *Reporter) ExportJSON(w io.Writer, report interface{}) error {
 	return encoder.Encode(report)
 }
 
+func (r *Reporter) ExportNDJSON(w io.Writer, events []audit.SignEvent) error {
+	encoder := json.NewEncoder(w)
+	for _, ev := range events {
+		if err := encoder.Encode(ev); err != nil {
+			return fmt.Errorf("failed to encode event to ndjson: %w", err)
+		}
+	}
+	return nil
+}
+
 func (r *Reporter) ExportCSV(ctx context.Context, w io.Writer, events []audit.SignEvent) error {
 	writer := csv.NewWriter(w)
 	defer writer.Flush()
