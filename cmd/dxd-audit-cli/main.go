@@ -105,6 +105,7 @@ func logEventCmd() *cobra.Command {
 	var email string
 	var ip string
 	var ua string
+	var signedAtStr string
 
 	cmd := &cobra.Command{
 		Use:   "log-event",
@@ -138,11 +139,21 @@ func logEventCmd() *cobra.Command {
 				log.Fatal("--signer-email is required")
 			}
 
+			var signedAt time.Time
+			if signedAtStr != "" {
+				var err error
+				signedAt, err = time.Parse(time.RFC3339, signedAtStr)
+				if err != nil {
+					log.Fatalf("Invalid signed-at (expected RFC3339): %v", err)
+				}
+			}
+
 			event := audit.SignEvent{
 				DocumentID:  docID,
 				SignerEmail: email,
 				IPAddress:   ip,
 				UserAgent:   ua,
+				SignedAt:    signedAt,
 			}
 
 			event, err := repo.LogSignEvent(ctx, event)
@@ -161,6 +172,7 @@ func logEventCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&email, "signer-email", "e", "", "Email of the signer")
 	cmd.Flags().StringVarP(&ip, "ip", "i", "", "IP address of the signer")
 	cmd.Flags().StringVarP(&ua, "user-agent", "u", "", "User agent of the signer")
+	cmd.Flags().StringVar(&signedAtStr, "signed-at", "", "Timestamp of the signature (RFC3339)")
 
 	return cmd
 }
@@ -173,7 +185,7 @@ func reportCmd() *cobra.Command {
 		Short: "Generate audit reports",
 	}
 
-	cmd.PersistentFlags().StringVar(&format, "format", "json", "Output format (json|csv)")
+	cmd.PersistentFlags().StringVar(&format, "format", "json", "Output format (json|csv|ndjson)")
 
 	cmd.AddCommand(documentReportCmd(&format))
 	cmd.AddCommand(signerReportCmd(&format))
@@ -203,6 +215,8 @@ func documentReportCmd(format *string) *cobra.Command {
 
 			if *format == "csv" {
 				err = reporter.ExportCSV(ctx, os.Stdout, docReport.Events)
+			} else if *format == "ndjson" {
+				err = reporter.ExportNDJSON(os.Stdout, docReport.Events)
 			} else {
 				err = reporter.ExportJSON(os.Stdout, docReport)
 			}
@@ -259,6 +273,8 @@ func signerReportCmd(format *string) *cobra.Command {
 
 			if *format == "csv" {
 				err = reporter.ExportCSV(ctx, os.Stdout, signerReport.Events)
+			} else if *format == "ndjson" {
+				err = reporter.ExportNDJSON(os.Stdout, signerReport.Events)
 			} else {
 				err = reporter.ExportJSON(os.Stdout, signerReport)
 			}
