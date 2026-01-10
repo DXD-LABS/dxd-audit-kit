@@ -1,0 +1,26 @@
+name: Yêu cầu tính năng (Feature request)
+about: Đề xuất một ý tưởng cho dự án này
+title: '[FEATURE] '
+labels: enhancement
+assignees: ''
+
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Vấn đề hiện tại
+      description: Bạn đang gặp khó khăn gì hoặc muốn cải thiện điều gì?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Giải pháp đề xuất
+      description: Mô tả chi tiết về tính năng bạn muốn thêm vào.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Các giải pháp thay thế
+      description: Bạn đã cân nhắc các giải pháp khác chưa?

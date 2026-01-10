@@ -19,6 +19,16 @@
 - Database: PostgreSQL
 - Interfaces: CLI (`dxd-audit-cli`) and Go package (`github.com/dxdlabs/dxd-audit-kit/pkg/dxdaudit`)
 
+## Production Readiness
+
+Dự án được thiết kế để có thể triển khai trên môi trường Production với các tiêu chuẩn:
+- **Logging:** Structured JSON logging qua `stdout`.
+- **Config:** Quản lý hoàn toàn qua biến môi trường.
+- **Database:** Hỗ trợ cơ chế migration và backup.
+- **Deployment:** Hỗ trợ Docker và Kubernetes.
+
+Xem chi tiết tại [PRODUCTION_READINESS.md](./PRODUCTION_READINESS.md).
+
 ## Getting started
 
 ### 1. Khởi động Database
@@ -109,8 +119,13 @@ go run ./cmd/dxd-audit-cli report document --document-id <UUID> --format json
 *Ví dụ JSON Output với Anomaly:*
 ```json
 {
-  "document": { ... },
-  "events": [ ... ],
+  "document": {
+    "id": "...",
+    "hash": "..."
+  },
+  "events": [
+    { "id": "..." }
+  ],
   "anomalies": [
     {
       "sign_event_id": "...",
@@ -129,4 +144,62 @@ go run ./cmd/dxd-audit-cli report document --document-id <UUID> --format json
   }
 }
 ```
+
+## Security Considerations
+
+Vấn đề bảo mật là ưu tiên hàng đầu trong các hệ thống Audit và Chữ ký số. Dưới đây là các nguyên tắc bảo mật được áp dụng và khuyến nghị:
+
+### 1. Data Logging (Dữ liệu nên và không nên log)
+- **Nên log:** Metadata của sự kiện (Timestamp, Document Hash, Signer ID/Email, IP Address, User Agent, Provider).
+- **Không nên log:** 
+    - Nội dung nhạy cảm bên trong tài liệu (trừ khi có yêu cầu nghiệp vụ đặc thù và đã được mã hóa).
+    - Thông tin định danh cá nhân (PII) không cần thiết.
+    - Token hoặc Secret Key của các hệ thống tích hợp.
+- **Log Level:** Sử dụng structured logging (JSON) để dễ dàng tích hợp với các hệ thống SIEM/SOC nhằm phát hiện sớm các hành vi tấn công.
+
+### 2. Database Protection
+- **Kết nối:** Luôn sử dụng kết nối bảo mật (TLS/SSL) giữa ứng dụng và Postgres.
+- **Phân vùng mạng:** Database nên được đặt trong mạng nội bộ (private subnet), không mở public port (5432) ra ngoài internet.
+- **Mã hóa:** Khuyến nghị bật cơ chế mã hóa dữ liệu khi lưu trữ (Encryption at rest) ở tầng storage.
+
+### 3. Application RBAC (Phân quyền Role)
+Hệ thống khuyến nghị phân chia 3 nhóm quyền chính:
+- **Signer (Người ký):** Chỉ có quyền gửi yêu cầu ký và ghi nhận sự kiện ký thông qua hệ thống tích hợp. Không có quyền truy cập trực tiếp vào Audit Log.
+- **Auditor (Người kiểm toán):** Có quyền đọc (Read-only) các báo cáo Audit Trail, xem kết quả Anomaly Detection để kiểm tra tính toàn vẹn của giao dịch.
+- **Admin (Quản trị viên):** Có quyền cấu hình hệ thống, quản lý quy tắc (Rules) phân tích bất thường và quản lý các tích hợp đầu vào.
+
+---
+
+## API / CLI Reference
+
+### CLI Reference
+
+Tóm tắt các lệnh chính của `dxd-audit-cli`:
+
+| Lệnh | Input chính | Output | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `verify` | `--file` | Document ID, Hash | Xác thực file và đăng ký tài liệu vào DB. |
+| `log-event` | `--document-id` hoặc `--file`, `--signer-email` | Event ID, Signed At | Ghi lại một sự kiện ký tài liệu. |
+| `report document` | `--document-id`, `--format` | JSON/CSV/NDJSON | Xuất báo cáo lịch sử của một tài liệu. |
+| `report signer` | `--email`, `--from`, `--to`, `--format` | JSON/CSV/NDJSON | Xuất báo cáo các hoạt động của một người ký. |
+| `analyze document` | `--document-id` | Danh sách Anomaly | Phân tích các dấu hiệu bất thường cho tài liệu. |
+
+Sử dụng `--help` sau mỗi lệnh để xem chi tiết tất cả các flag.
+
+### API Reference (OpenAPI)
+
+Dự án cung cấp một HTTP server (`dxd-audit-server`) để tích hợp qua API. Chi tiết đặc tả API (OpenAPI 3.0) có thể tìm thấy tại:
+
+- 📄 [api/openapi.yaml](./api/openapi.yaml)
+
+HTTP Server mặc định lắng nghe tại cổng `8080`.
+
+## Community & Contributing
+
+Chúng tôi hoan nghênh mọi đóng góp từ cộng đồng!
+
+- 🤝 **[CONTRIBUTING.md](./CONTRIBUTING.md):** Hướng dẫn đóng góp và các ý tưởng cho người mới.
+- 📜 **[CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md):** Quy tắc ứng xử trong cộng đồng.
+- 🛡️ **[SECURITY.md](./SECURITY.md):** Chính sách bảo mật và báo cáo lỗ hổng.
+- 🎫 **[Open an Issue](https://github.com/dxdlabs/dxd-audit-kit/issues/new/choose):** Báo lỗi hoặc yêu cầu tính năng mới.
 
