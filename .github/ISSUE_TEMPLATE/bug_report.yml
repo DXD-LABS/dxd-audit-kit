@@ -1,0 +1,38 @@
+name: Báo lỗi (Bug report)
+about: Tạo báo cáo để giúp chúng tôi cải thiện dự án
+title: '[BUG] '
+labels: bug
+assignees: ''
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Cảm ơn bạn đã báo lỗi! Vui lòng điền vào các thông tin bên dưới.
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Cách tái hiện lỗi
+      description: Các bước để chúng tôi có thể thấy lỗi xảy ra.
+      placeholder: |
+        1. Chạy lệnh '...'
+        2. Nhập dữ liệu '...'
+        3. Thấy thông báo lỗi '...'
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Kết quả mong đợi
+      description: Bạn mong đợi điều gì sẽ xảy ra?
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Môi trường
+      description: OS, phiên bản Go, phiên bản Postgres, v.v.
+      placeholder: |
+        - OS: Windows/Linux
+        - Go version: 1.21
+        - dxd-audit-kit version: v1.0.0
