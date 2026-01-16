@@ -12,10 +12,15 @@ import (
 type Repository interface {
 	CreateDocument(ctx context.Context, doc Document) (Document, error)
 	GetDocumentByHash(ctx context.Context, hash string) (Document, error)
+	GetDocumentByExternalID(ctx context.Context, externalID string) (Document, error)
 	GetDocumentByID(ctx context.Context, id uuid.UUID) (Document, error)
 	LogSignEvent(ctx context.Context, ev SignEvent) (SignEvent, error)
 	ListEventsByDocument(ctx context.Context, docID uuid.UUID) ([]SignEvent, error)
 	ListEventsBySigner(ctx context.Context, email string, from, to *time.Time) ([]SignEvent, error)
+
+	// Ingest
+	GetIngestEvent(ctx context.Context, source, sourceEventID string) (IngestEvent, error)
+	CreateIngestEvent(ctx context.Context, ev IngestEvent) error
 
 	// Anomaly
 	SaveAnomalyScore(ctx context.Context, s AnomalyScore) error
@@ -35,11 +40,13 @@ func (r *postgresRepo) CreateDocument(ctx context.Context, doc Document) (Docume
 	if doc.ID == uuid.Nil {
 		doc.ID = uuid.New()
 	}
-	query := `INSERT INTO documents (id, hash, hash_algo, size, created_at) 
-              VALUES ($1, $2, $3, $4, CASE WHEN $5 = '0001-01-01 00:00:00+00'::timestamptz THEN NOW() ELSE $5 END) 
+	query := `INSERT INTO documents (id, hash, hash_algo, external_id, title, size, created_at) 
+              VALUES ($1, $2, $3, $4, $5, $6, CASE WHEN $7 = '0001-01-01 00:00:00+00'::timestamptz THEN NOW() ELSE $7 END) 
               RETURNING created_at`
 
-	err := r.db.QueryRowContext(ctx, query, doc.ID, doc.Hash, doc.HashAlgo, doc.Size, doc.CreatedAt).Scan(&doc.CreatedAt)
+	err := r.db.QueryRowContext(ctx, query,
+		doc.ID, doc.Hash, doc.HashAlgo, doc.ExternalID, doc.Title, doc.Size, doc.CreatedAt,
+	).Scan(&doc.CreatedAt)
 	if err != nil {
 		return Document{}, fmt.Errorf("failed to create document: %w", err)
 	}
@@ -48,8 +55,25 @@ func (r *postgresRepo) CreateDocument(ctx context.Context, doc Document) (Docume
 
 func (r *postgresRepo) GetDocumentByHash(ctx context.Context, hash string) (Document, error) {
 	var doc Document
-	query := `SELECT id, hash, hash_algo, size, created_at FROM documents WHERE hash = $1`
-	err := r.db.QueryRowContext(ctx, query, hash).Scan(&doc.ID, &doc.Hash, &doc.HashAlgo, &doc.Size, &doc.CreatedAt)
+	query := `SELECT id, hash, hash_algo, external_id, title, size, created_at FROM documents WHERE hash = $1`
+	err := r.db.QueryRowContext(ctx, query, hash).Scan(
+		&doc.ID, &doc.Hash, &doc.HashAlgo, &doc.ExternalID, &doc.Title, &doc.Size, &doc.CreatedAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return Document{}, fmt.Errorf("document not found: %w", err)
+		}
+		return Document{}, fmt.Errorf("failed to get document: %w", err)
+	}
+	return doc, nil
+}
+
+func (r *postgresRepo) GetDocumentByExternalID(ctx context.Context, externalID string) (Document, error) {
+	var doc Document
+	query := `SELECT id, hash, hash_algo, external_id, title, size, created_at FROM documents WHERE external_id = $1`
+	err := r.db.QueryRowContext(ctx, query, externalID).Scan(
+		&doc.ID, &doc.Hash, &doc.HashAlgo, &doc.ExternalID, &doc.Title, &doc.Size, &doc.CreatedAt,
+	)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return Document{}, fmt.Errorf("document not found: %w", err)
@@ -61,8 +85,10 @@ func (r *postgresRepo) GetDocumentByHash(ctx context.Context, hash string) (Docu
 
 func (r *postgresRepo) GetDocumentByID(ctx context.Context, id uuid.UUID) (Document, error) {
 	var doc Document
-	query := `SELECT id, hash, hash_algo, size, created_at FROM documents WHERE id = $1`
-	err := r.db.QueryRowContext(ctx, query, id).Scan(&doc.ID, &doc.Hash, &doc.HashAlgo, &doc.Size, &doc.CreatedAt)
+	query := `SELECT id, hash, hash_algo, external_id, title, size, created_at FROM documents WHERE id = $1`
+	err := r.db.QueryRowContext(ctx, query, id).Scan(
+		&doc.ID, &doc.Hash, &doc.HashAlgo, &doc.ExternalID, &doc.Title, &doc.Size, &doc.CreatedAt,
+	)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return Document{}, fmt.Errorf("document not found: %w", err)
@@ -70,6 +96,31 @@ func (r *postgresRepo) GetDocumentByID(ctx context.Context, id uuid.UUID) (Docum
 		return Document{}, fmt.Errorf("failed to get document: %w", err)
 	}
 	return doc, nil
+}
+
+func (r *postgresRepo) GetIngestEvent(ctx context.Context, source, sourceEventID string) (IngestEvent, error) {
+	var ev IngestEvent
+	query := `SELECT source, source_event_id, sign_event_id, created_at FROM ingest_events WHERE source = $1 AND source_event_id = $2`
+	err := r.db.QueryRowContext(ctx, query, source, sourceEventID).Scan(
+		&ev.Source, &ev.SourceEventID, &ev.SignEventID, &ev.CreatedAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return IngestEvent{}, fmt.Errorf("ingest event not found: %w", err)
+		}
+		return IngestEvent{}, fmt.Errorf("failed to get ingest event: %w", err)
+	}
+	return ev, nil
+}
+
+func (r *postgresRepo) CreateIngestEvent(ctx context.Context, ev IngestEvent) error {
+	query := `INSERT INTO ingest_events (source, source_event_id, sign_event_id, created_at) 
+              VALUES ($1, $2, $3, CASE WHEN $4 = '0001-01-01 00:00:00+00'::timestamptz THEN NOW() ELSE $4 END)`
+	_, err := r.db.ExecContext(ctx, query, ev.Source, ev.SourceEventID, ev.SignEventID, ev.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("failed to create ingest event: %w", err)
+	}
+	return nil
 }
 
 func (r *postgresRepo) LogSignEvent(ctx context.Context, ev SignEvent) (SignEvent, error) {
