@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -13,19 +14,20 @@ import (
 
 type mockIngestService struct{}
 
-func (m *mockIngestService) HandleSigningEvent(ctx any, p SigningEventPayload) (Result, error) {
+func (m *mockIngestService) HandleSigningEvent(ctx context.Context, p SigningEventPayload) (Result, error) {
 	return Result{}, nil
 }
 
 func TestHandlePostEvent(t *testing.T) {
 	cfg := config.Config{IngestAPIToken: "test-token"}
-	svc := NewIngestService()
+	svc := &mockIngestService{}
 	handler := NewHTTPHandler(cfg, svc)
 
 	payload := SigningEventPayload{
 		EventID:   "dsign-evt-12345",
 		EventName: "document.signed",
 		EventTime: time.Now(),
+		Source:    "dsign.foundation",
 		Actor: Actor{
 			Email: "user@example.com",
 		},
@@ -54,7 +56,7 @@ func TestHandlePostEvent(t *testing.T) {
 
 func TestHandlePostEvent_Unauthorized(t *testing.T) {
 	cfg := config.Config{IngestAPIToken: "test-token"}
-	svc := NewIngestService()
+	svc := &mockIngestService{}
 	handler := NewHTTPHandler(cfg, svc)
 
 	req := httptest.NewRequest("POST", "/v1/events", nil)
@@ -70,7 +72,7 @@ func TestHandlePostEvent_Unauthorized(t *testing.T) {
 
 func TestHandlePostEvent_MissingFields(t *testing.T) {
 	cfg := config.Config{IngestAPIToken: "test-token"}
-	svc := NewIngestService()
+	svc := &mockIngestService{}
 	handler := NewHTTPHandler(cfg, svc)
 
 	payload := SigningEventPayload{

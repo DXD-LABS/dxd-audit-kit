@@ -9,11 +9,20 @@ import (
 
 // Document đại diện cho 1 tài liệu được verify
 type Document struct {
-	ID        uuid.UUID `json:"id"`
-	Hash      string    `json:"hash"`
-	HashAlgo  string    `json:"hash_algo"`
-	Size      int64     `json:"size"`
-	CreatedAt time.Time `json:"created_at"`
+	ID         uuid.UUID `json:"id"`
+	Hash       string    `json:"hash"`
+	HashAlgo   string    `json:"hash_algo"`
+	ExternalID *string   `json:"external_id,omitempty"`
+	Title      *string   `json:"title,omitempty"`
+	Size       int64     `json:"size"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+type IngestEvent struct {
+	Source        string    `json:"source"`
+	SourceEventID string    `json:"source_event_id"`
+	SignEventID   uuid.UUID `json:"sign_event_id"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 // SignEvent đại diện cho một sự kiện ký
