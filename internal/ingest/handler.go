@@ -25,6 +25,55 @@ func NewHTTPHandler(cfg config.Config, svc IngestService) *HTTPHandler {
 func (h *HTTPHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/events", h.handlePostEvent)
 	mux.HandleFunc("GET /healthz", h.handleHealthCheck)
+	mux.HandleFunc("GET /swagger.yaml", h.handleSwaggerYAML)
+	mux.HandleFunc("GET /swagger", h.handleSwaggerUI)
+}
+
+func (h *HTTPHandler) handleSwaggerYAML(w http.ResponseWriter, r *http.Request) {
+	http.ServeFile(w, r, "api/openapi.yaml")
+}
+
+func (h *HTTPHandler) handleSwaggerUI(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html")
+	html := `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Swagger UI</title>
+    <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" >
+    <style>
+      html { box-sizing: border-box; overflow: -moz-scrollbars-vertical; overflow-y: scroll; }
+      *, *:before, *:after { box-sizing: inherit; }
+      body { margin:0; background: #fafafa; }
+    </style>
+</head>
+<body>
+    <div id="swagger-ui"></div>
+    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"> </script>
+    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-standalone-preset.js"> </script>
+    <script>
+    window.onload = function() {
+      const ui = SwaggerUIBundle({
+        url: "/swagger.yaml",
+        dom_id: '#swagger-ui',
+        deepLinking: true,
+        presets: [
+          SwaggerUIBundle.presets.apis,
+          SwaggerUIStandalonePreset
+        ],
+        plugins: [
+          SwaggerUIBundle.plugins.DownloadUrl
+        ],
+        layout: "StandaloneLayout"
+      })
+      window.ui = ui
+    }
+    </script>
+</body>
+</html>
+`
+	_, _ = w.Write([]byte(html))
 }
 
 func (h *HTTPHandler) handlePostEvent(w http.ResponseWriter, r *http.Request) {

@@ -188,9 +188,10 @@ Sử dụng `--help` sau mỗi lệnh để xem chi tiết tất cả các flag.
 
 ### API Reference (OpenAPI)
 
-Dự án cung cấp một HTTP server (`dxd-audit-server`) để tích hợp qua API. Chi tiết đặc tả API (OpenAPI 3.0) có thể tìm thấy tại:
+Dự án cung cấp một HTTP server (`dxd-audit-server`) để tích hợp qua API.
 
-- 📄 [api/openapi.yaml](./api/openapi.yaml)
+- **Swagger UI:** Truy cập `http://localhost:8080/swagger` khi server đang chạy.
+- **Spec file:** [api/openapi.yaml](./api/openapi.yaml)
 
 HTTP Server mặc định lắng nghe tại cổng `8080`.
 
