@@ -29,8 +29,9 @@ WORKDIR /app
 # Copy binary from builder
 COPY --from=builder /app/dxd-audit-server .
 
-# Copy migrations if needed (if the app runs them on startup)
+# Copy migrations and API spec
 COPY migrations ./migrations
+COPY api ./api
 
 # Expose port (Railway will use PORT environment variable, but 8080 is our default)
 EXPOSE 8080
