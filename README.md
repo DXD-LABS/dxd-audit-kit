@@ -194,6 +194,24 @@ Dự án cung cấp một HTTP server (`dxd-audit-server`) để tích hợp qua
 
 HTTP Server mặc định lắng nghe tại cổng `8080`.
 
+## Deployment
+
+### Docker
+Dự án cung cấp Dockerfile để đóng gói ứng dụng:
+```bash
+docker build -t dxd-audit-server .
+docker run -p 8080:8080 --env DATABASE_URL=... dxd-audit-server
+```
+
+### Railway
+Để triển khai trên [Railway](https://railway.app):
+1. Kết nối repository Github của bạn với Railway.
+2. Railway sẽ tự động phát hiện `Dockerfile` ở thư mục gốc.
+3. Cấu hình các biến môi trường (Environment Variables):
+   - `DATABASE_URL`: URL tới database Postgres (Railway có thể tự cung cấp nếu bạn thêm service Postgres).
+   - `INGEST_API_TOKEN`: Token bảo mật cho API ingest.
+   - `PORT`: Railway sẽ tự động gán cổng này (mặc định ứng dụng dùng 8080).
+
 ## Community & Contributing
 
 Chúng tôi hoan nghênh mọi đóng góp từ cộng đồng!

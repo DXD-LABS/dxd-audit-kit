@@ -3,9 +3,117 @@ info:
   title: DXD Audit Kit API
   version: 1.0.0
 paths:
-  /logs:
+  /v1/events:
     post:
-      summary: Ingest audit log
+      summary: Ingest signing event
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SigningEventPayload'
       responses:
         '200':
           description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  document_id:
+                    type: string
+                    format: uuid
+                  sign_event_id:
+                    type: string
+                    format: uuid
+                  deduplicated:
+                    type: boolean
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    SigningEventPayload:
+      type: object
+      required:
+        - event_id
+        - event_name
+        - event_time
+        - actor
+        - target
+      properties:
+        event_id:
+          type: string
+        event_name:
+          type: string
+        event_time:
+          type: string
+          format: date-time
+        source:
+          type: string
+        actor:
+          $ref: '#/components/schemas/Actor'
+        target:
+          $ref: '#/components/schemas/Target'
+        context:
+          $ref: '#/components/schemas/Context'
+    Actor:
+      type: object
+      required:
+        - id
+        - email
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+        type:
+          type: string
+    Target:
+      type: object
+      required:
+        - id
+        - hash
+      properties:
+        type:
+          type: string
+        id:
+          type: string
+        external_id:
+          type: string
+        hash:
+          type: string
+        hash_algo:
+          type: string
+        title:
+          type: string
+        version:
+          type: integer
+    Context:
+      type: object
+      properties:
+        ip_address:
+          type: string
+        user_agent:
+          type: string
+        location:
+          type: object
+        device_id:
+          type: string
+        channel:
+          type: string
+        auth_method:
+          type: string
+        onchain_tx_hash:
+          type: string
+        trace_id:
+          type: string
+        request:
+          type: object
