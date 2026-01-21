@@ -9,12 +9,21 @@ import (
 	"github.com/google/uuid"
 )
 
+// DefaultIngestService is the default implementation of IngestService.
 type DefaultIngestService struct {
 	repo audit.Repository
 }
 
+// NewIngestService creates a new DefaultIngestService.
 func NewIngestService(repo audit.Repository) *DefaultIngestService {
 	return &DefaultIngestService{repo: repo}
+}
+
+func toString(v any) string {
+	if v == nil {
+		return ""
+	}
+	return fmt.Sprintf("%v", v)
 }
 
 func (s *DefaultIngestService) HandleSigningEvent(ctx context.Context, p SigningEventPayload) (Result, error) {
@@ -38,8 +47,9 @@ func (s *DefaultIngestService) HandleSigningEvent(ctx context.Context, p Signing
 			HashAlgo: p.Target.HashAlgo,
 			Size:     0, // Unknown from payload
 		}
-		if p.Target.ExternalID != "" {
-			newDoc.ExternalID = &p.Target.ExternalID
+		if p.Target.ExternalID != nil && toString(p.Target.ExternalID) != "" {
+			extID := toString(p.Target.ExternalID)
+			newDoc.ExternalID = &extID
 		}
 		if p.Target.Title != "" {
 			newDoc.Title = &p.Target.Title
@@ -65,9 +75,10 @@ func (s *DefaultIngestService) HandleSigningEvent(ctx context.Context, p Signing
 		"request":         p.Context.Request,
 	})
 
+	actorID := toString(p.Actor.ID)
 	signEv := audit.SignEvent{
 		DocumentID:  docID,
-		SignerID:    &p.Actor.ID,
+		SignerID:    &actorID,
 		SignerEmail: p.Actor.Email,
 		IPAddress:   p.Context.IPAddress,
 		UserAgent:   p.Context.UserAgent,
@@ -104,8 +115,9 @@ func (s *DefaultIngestService) HandleSigningEvent(ctx context.Context, p Signing
 
 func (s *DefaultIngestService) findDocument(ctx context.Context, t Target) (audit.Document, error) {
 	// Try external_id first
-	if t.ExternalID != "" {
-		doc, err := s.repo.GetDocumentByExternalID(ctx, t.ExternalID)
+	extID := toString(t.ExternalID)
+	if extID != "" {
+		doc, err := s.repo.GetDocumentByExternalID(ctx, extID)
 		if err == nil {
 			return doc, nil
 		}

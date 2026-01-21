@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 )
 
+// SigningEventPayload represents the incoming signing event from a source.
 type SigningEventPayload struct {
 	EventID   string    `json:"event_id"`
 	EventName string    `json:"event_name"` // vd: "document.signed"
@@ -18,23 +19,26 @@ type SigningEventPayload struct {
 	Context Context `json:"context"`
 }
 
+// Actor represents the entity performing the action.
 type Actor struct {
-	ID    string `json:"id"`
+	ID    any    `json:"id"`
 	Email string `json:"email"`
 	Role  string `json:"role"` // signer | approver | admin...
 	Type  string `json:"type"` // user | system | service_account
 }
 
+// Target represents the object being acted upon.
 type Target struct {
 	Type       string `json:"type"`        // document | transaction | account | policy...
-	ID         string `json:"id"`          // internal id phía source
-	ExternalID string `json:"external_id"` // nếu cần phân biệt
+	ID         any    `json:"id"`          // internal id phía source
+	ExternalID any    `json:"external_id"` // nếu cần phân biệt
 	Hash       string `json:"hash"`
 	HashAlgo   string `json:"hash_algo"`
 	Title      string `json:"title"`
 	Version    int    `json:"version"`
 }
 
+// Context provides additional environmental information about the event.
 type Context struct {
 	IPAddress  string         `json:"ip_address"`
 	UserAgent  string         `json:"user_agent"`
@@ -47,10 +51,12 @@ type Context struct {
 	Request    map[string]any `json:"request"` // contract_id, business_unit, ...
 }
 
+// IngestService defines the interface for handling event ingestion.
 type IngestService interface {
 	HandleSigningEvent(ctx context.Context, p SigningEventPayload) (Result, error)
 }
 
+// Result contains information about the outcome of an ingestion operation.
 type Result struct {
 	DocumentID   uuid.UUID
 	SignEventID  uuid.UUID
