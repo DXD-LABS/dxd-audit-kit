@@ -27,44 +27,7 @@ func toString(v any) string {
 }
 
 func (s *DefaultIngestService) HandleSigningEvent(ctx context.Context, p SigningEventPayload) (Result, error) {
-	// 1. Idempotency check
-	existing, err := s.repo.GetIngestEvent(ctx, p.Source, p.EventID)
-	if err == nil {
-		// Tìm được record cũ -> deduplicated
-		return Result{
-			SignEventID:  existing.SignEventID,
-			Deduplicated: true,
-		}, nil
-	}
-
-	// 2. Map Document
-	var docID uuid.UUID
-	doc, err := s.findDocument(ctx, p.Target)
-	if err != nil {
-		// Create new document
-		newDoc := audit.Document{
-			Hash:     p.Target.Hash,
-			HashAlgo: p.Target.HashAlgo,
-			Size:     0, // Unknown from payload
-		}
-		if p.Target.ExternalID != nil && toString(p.Target.ExternalID) != "" {
-			extID := toString(p.Target.ExternalID)
-			newDoc.ExternalID = &extID
-		}
-		if p.Target.Title != "" {
-			newDoc.Title = &p.Target.Title
-		}
-
-		createdDoc, err := s.repo.CreateDocument(ctx, newDoc)
-		if err != nil {
-			return Result{}, fmt.Errorf("failed to create document: %w", err)
-		}
-		docID = createdDoc.ID
-	} else {
-		docID = doc.ID
-	}
-
-	// 3. Create SignEvent
+	// Prepare immutable payload-derived fields once.
 	locationJSON, _ := json.Marshal(p.Context.Location)
 	extraJSON, _ := json.Marshal(map[string]any{
 		"event_name":      p.EventName,
@@ -74,57 +37,105 @@ func (s *DefaultIngestService) HandleSigningEvent(ctx context.Context, p Signing
 		"trace_id":        p.Context.TraceID,
 		"request":         p.Context.Request,
 	})
-
 	actorID := toString(p.Actor.ID)
-	signEv := audit.SignEvent{
-		DocumentID:  docID,
-		SignerID:    &actorID,
-		SignerEmail: p.Actor.Email,
-		IPAddress:   p.Context.IPAddress,
-		UserAgent:   p.Context.UserAgent,
-		Location:    locationJSON,
-		DeviceID:    &p.Context.DeviceID,
-		Provider:    &p.Source,
-		Extra:       extraJSON,
-		SignedAt:    p.EventTime,
-	}
 
-	loggedEv, err := s.repo.LogSignEvent(ctx, signEv)
-	if err != nil {
-		return Result{}, fmt.Errorf("failed to log sign event: %w", err)
-	}
+	var result Result
+	err := s.repo.WithinTransaction(ctx, func(txRepo audit.Repository) error {
+		// 1. Idempotency check
+		existing, err := txRepo.GetIngestEvent(ctx, p.Source, p.EventID)
+		if err == nil {
+			result = Result{
+				SignEventID:  existing.SignEventID,
+				Deduplicated: true,
+			}
+			return nil
+		}
 
-	// 4. Save IngestEvent for idempotency
-	err = s.repo.CreateIngestEvent(ctx, audit.IngestEvent{
-		Source:        p.Source,
-		SourceEventID: p.EventID,
-		SignEventID:   loggedEv.ID,
+		// 2. Find/Create document
+		var docID uuid.UUID
+		doc, err := s.findDocumentWithRepo(ctx, txRepo, p.Target)
+		if err != nil {
+			newDoc := audit.Document{
+				Hash:     p.Target.Hash,
+				HashAlgo: p.Target.HashAlgo,
+				Size:     0,
+			}
+			if p.Target.ExternalID != nil && toString(p.Target.ExternalID) != "" {
+				extID := toString(p.Target.ExternalID)
+				newDoc.ExternalID = &extID
+			}
+			if p.Target.Title != "" {
+				newDoc.Title = &p.Target.Title
+			}
+
+			createdDoc, err := txRepo.CreateDocument(ctx, newDoc)
+			if err != nil {
+				return fmt.Errorf("failed to create document: %w", err)
+			}
+			docID = createdDoc.ID
+		} else {
+			docID = doc.ID
+		}
+
+		// 3. Create SignEvent
+		signEv := audit.SignEvent{
+			DocumentID:  docID,
+			SignerID:    &actorID,
+			SignerEmail: p.Actor.Email,
+			IPAddress:   p.Context.IPAddress,
+			UserAgent:   p.Context.UserAgent,
+			Location:    locationJSON,
+			DeviceID:    &p.Context.DeviceID,
+			Provider:    &p.Source,
+			Extra:       extraJSON,
+			SignedAt:    p.EventTime,
+		}
+
+		loggedEv, err := txRepo.LogSignEvent(ctx, signEv)
+		if err != nil {
+			return fmt.Errorf("failed to log sign event: %w", err)
+		}
+
+		// 4. Save IngestEvent idempotency marker (must succeed, otherwise rollback).
+		err = txRepo.CreateIngestEvent(ctx, audit.IngestEvent{
+			Source:        p.Source,
+			SourceEventID: p.EventID,
+			SignEventID:   loggedEv.ID,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create ingest event: %w", err)
+		}
+
+		result = Result{
+			DocumentID:   docID,
+			SignEventID:  loggedEv.ID,
+			Deduplicated: false,
+		}
+		return nil
 	})
 	if err != nil {
-		// Log error but don't fail the whole request?
-		// Actually, if we fail here, the next retry might succeed in creating another sign_event if not careful.
-		// For robustness, this should be in a transaction.
+		return Result{}, err
 	}
 
-	return Result{
-		DocumentID:   docID,
-		SignEventID:  loggedEv.ID,
-		Deduplicated: false,
-	}, nil
+	return result, nil
 }
 
 func (s *DefaultIngestService) findDocument(ctx context.Context, t Target) (audit.Document, error) {
+	return s.findDocumentWithRepo(ctx, s.repo, t)
+}
+
+func (s *DefaultIngestService) findDocumentWithRepo(ctx context.Context, repo audit.Repository, t Target) (audit.Document, error) {
 	// Try external_id first
 	extID := toString(t.ExternalID)
 	if extID != "" {
-		doc, err := s.repo.GetDocumentByExternalID(ctx, extID)
+		doc, err := repo.GetDocumentByExternalID(ctx, extID)
 		if err == nil {
 			return doc, nil
 		}
 	}
 	// Then hash
 	if t.Hash != "" {
-		doc, err := s.repo.GetDocumentByHash(ctx, t.Hash)
+		doc, err := repo.GetDocumentByHash(ctx, t.Hash)
 		if err == nil {
 			return doc, nil
 		}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"os"
+	"sync"
 	"testing"
 
 	"github.com/dxdlabs/dxd-audit-kit/internal/db"
@@ -69,6 +70,67 @@ func TestPostgresRepo(t *testing.T) {
 		_, err = repo.GetDocumentByHash(ctx, "non-existent")
 		if err == nil {
 			t.Error("Expected error for non-existent hash, got nil")
+		}
+
+		// Test CreateDocument idempotency on hash conflict
+		duplicate := Document{
+			ID:       uuid.New(),
+			Hash:     doc.Hash,
+			HashAlgo: doc.HashAlgo,
+			Size:     4096,
+		}
+		createdDuplicate, err := repo.CreateDocument(ctx, duplicate)
+		if err != nil {
+			t.Fatalf("Expected duplicate hash insert to be idempotent, got error: %v", err)
+		}
+		if createdDuplicate.ID != doc.ID {
+			t.Errorf("Expected existing document ID %s, got %s", doc.ID, createdDuplicate.ID)
+		}
+
+		// Test CreateDocument idempotency under concurrency on hash conflict
+		const workers = 8
+		hash := "concurrent-hash-" + uuid.New().String()
+		var (
+			wg      sync.WaitGroup
+			mu      sync.Mutex
+			firstID uuid.UUID
+		)
+
+		for i := 0; i < workers; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				created, err := repo.CreateDocument(ctx, Document{
+					ID:       uuid.New(),
+					Hash:     hash,
+					HashAlgo: "sha256",
+					Size:     100,
+				})
+				if err != nil {
+					t.Errorf("Concurrent CreateDocument failed: %v", err)
+					return
+				}
+
+				mu.Lock()
+				defer mu.Unlock()
+				if firstID == uuid.Nil {
+					firstID = created.ID
+					return
+				}
+				if created.ID != firstID {
+					t.Errorf("Expected same document ID across concurrent creates, got %s and %s", firstID, created.ID)
+				}
+			}()
+		}
+		wg.Wait()
+
+		var count int
+		err = database.QueryRowContext(ctx, "SELECT COUNT(*) FROM documents WHERE hash = $1", hash).Scan(&count)
+		if err != nil {
+			t.Fatalf("Failed to count documents by hash: %v", err)
+		}
+		if count != 1 {
+			t.Errorf("Expected exactly 1 document row for hash, got %d", count)
 		}
 	})
 

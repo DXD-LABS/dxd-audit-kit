@@ -26,27 +26,76 @@ type Repository interface {
 	SaveAnomalyScore(ctx context.Context, s AnomalyScore) error
 	ListAnomaliesByDocument(ctx context.Context, docID uuid.UUID) ([]AnomalyScore, error)
 	ListAnomaliesBySigner(ctx context.Context, email string) ([]AnomalyScore, error)
+
+	WithinTransaction(ctx context.Context, fn func(Repository) error) error
+}
+
+type queryExecutor interface {
+	QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row
+	QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error)
+	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
 }
 
 type postgresRepo struct {
-	db *sql.DB
+	db      *sql.DB
+	executor queryExecutor
 }
 
 func NewRepository(db *sql.DB) Repository {
-	return &postgresRepo{db: db}
+	return &postgresRepo{
+		db:       db,
+		executor: db,
+	}
+}
+
+func (r *postgresRepo) WithinTransaction(ctx context.Context, fn func(Repository) error) (err error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+
+	defer func() {
+		if p := recover(); p != nil {
+			_ = tx.Rollback()
+			panic(p)
+		}
+		if err != nil {
+			_ = tx.Rollback()
+			return
+		}
+		if commitErr := tx.Commit(); commitErr != nil {
+			err = fmt.Errorf("failed to commit transaction: %w", commitErr)
+		}
+	}()
+
+	txRepo := &postgresRepo{
+		db:       r.db,
+		executor: tx,
+	}
+
+	err = fn(txRepo)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (r *postgresRepo) CreateDocument(ctx context.Context, doc Document) (Document, error) {
 	if doc.ID == uuid.Nil {
 		doc.ID = uuid.New()
 	}
-	query := `INSERT INTO documents (id, hash, hash_algo, external_id, title, size, created_at) 
-              VALUES ($1, $2, $3, $4, $5, $6, CASE WHEN $7 = '0001-01-01 00:00:00+00'::timestamptz THEN NOW() ELSE $7 END) 
-              RETURNING created_at`
+	query := `INSERT INTO documents (id, hash, hash_algo, external_id, title, size, created_at)
+              VALUES (
+                $1, $2, $3, $4, $5, $6,
+                CASE WHEN $7 = '0001-01-01 00:00:00+00'::timestamptz THEN NOW() ELSE $7 END
+              )
+              ON CONFLICT (hash) DO UPDATE
+              SET hash = documents.hash
+              RETURNING id, hash, hash_algo, external_id, title, size, created_at`
 
-	err := r.db.QueryRowContext(ctx, query,
+	err := r.executor.QueryRowContext(ctx, query,
 		doc.ID, doc.Hash, doc.HashAlgo, doc.ExternalID, doc.Title, doc.Size, doc.CreatedAt,
-	).Scan(&doc.CreatedAt)
+	).Scan(&doc.ID, &doc.Hash, &doc.HashAlgo, &doc.ExternalID, &doc.Title, &doc.Size, &doc.CreatedAt)
 	if err != nil {
 		return Document{}, fmt.Errorf("failed to create document: %w", err)
 	}
@@ -56,7 +105,7 @@ func (r *postgresRepo) CreateDocument(ctx context.Context, doc Document) (Docume
 func (r *postgresRepo) GetDocumentByHash(ctx context.Context, hash string) (Document, error) {
 	var doc Document
 	query := `SELECT id, hash, hash_algo, external_id, title, size, created_at FROM documents WHERE hash = $1`
-	err := r.db.QueryRowContext(ctx, query, hash).Scan(
+	err := r.executor.QueryRowContext(ctx, query, hash).Scan(
 		&doc.ID, &doc.Hash, &doc.HashAlgo, &doc.ExternalID, &doc.Title, &doc.Size, &doc.CreatedAt,
 	)
 	if err != nil {
@@ -71,7 +120,7 @@ func (r *postgresRepo) GetDocumentByHash(ctx context.Context, hash string) (Docu
 func (r *postgresRepo) GetDocumentByExternalID(ctx context.Context, externalID string) (Document, error) {
 	var doc Document
 	query := `SELECT id, hash, hash_algo, external_id, title, size, created_at FROM documents WHERE external_id = $1`
-	err := r.db.QueryRowContext(ctx, query, externalID).Scan(
+	err := r.executor.QueryRowContext(ctx, query, externalID).Scan(
 		&doc.ID, &doc.Hash, &doc.HashAlgo, &doc.ExternalID, &doc.Title, &doc.Size, &doc.CreatedAt,
 	)
 	if err != nil {
@@ -86,7 +135,7 @@ func (r *postgresRepo) GetDocumentByExternalID(ctx context.Context, externalID s
 func (r *postgresRepo) GetDocumentByID(ctx context.Context, id uuid.UUID) (Document, error) {
 	var doc Document
 	query := `SELECT id, hash, hash_algo, external_id, title, size, created_at FROM documents WHERE id = $1`
-	err := r.db.QueryRowContext(ctx, query, id).Scan(
+	err := r.executor.QueryRowContext(ctx, query, id).Scan(
 		&doc.ID, &doc.Hash, &doc.HashAlgo, &doc.ExternalID, &doc.Title, &doc.Size, &doc.CreatedAt,
 	)
 	if err != nil {
@@ -101,7 +150,7 @@ func (r *postgresRepo) GetDocumentByID(ctx context.Context, id uuid.UUID) (Docum
 func (r *postgresRepo) GetIngestEvent(ctx context.Context, source, sourceEventID string) (IngestEvent, error) {
 	var ev IngestEvent
 	query := `SELECT source, source_event_id, sign_event_id, created_at FROM ingest_events WHERE source = $1 AND source_event_id = $2`
-	err := r.db.QueryRowContext(ctx, query, source, sourceEventID).Scan(
+	err := r.executor.QueryRowContext(ctx, query, source, sourceEventID).Scan(
 		&ev.Source, &ev.SourceEventID, &ev.SignEventID, &ev.CreatedAt,
 	)
 	if err != nil {
@@ -116,7 +165,7 @@ func (r *postgresRepo) GetIngestEvent(ctx context.Context, source, sourceEventID
 func (r *postgresRepo) CreateIngestEvent(ctx context.Context, ev IngestEvent) error {
 	query := `INSERT INTO ingest_events (source, source_event_id, sign_event_id, created_at) 
               VALUES ($1, $2, $3, CASE WHEN $4 = '0001-01-01 00:00:00+00'::timestamptz THEN NOW() ELSE $4 END)`
-	_, err := r.db.ExecContext(ctx, query, ev.Source, ev.SourceEventID, ev.SignEventID, ev.CreatedAt)
+	_, err := r.executor.ExecContext(ctx, query, ev.Source, ev.SourceEventID, ev.SignEventID, ev.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("failed to create ingest event: %w", err)
 	}
@@ -138,7 +187,7 @@ func (r *postgresRepo) LogSignEvent(ctx context.Context, ev SignEvent) (SignEven
               ) 
               RETURNING signed_at`
 
-	err := r.db.QueryRowContext(ctx, query,
+	err := r.executor.QueryRowContext(ctx, query,
 		ev.ID, ev.DocumentID, ev.SignerID, ev.SignerEmail, ev.IPAddress,
 		ev.UserAgent, ev.Location, ev.DeviceID, ev.Provider, ev.Extra, ev.SignedAt,
 	).Scan(&ev.SignedAt)
@@ -154,7 +203,7 @@ func (r *postgresRepo) ListEventsByDocument(ctx context.Context, docID uuid.UUID
                 user_agent, location, device_id, provider, extra, signed_at 
               FROM sign_events 
               WHERE document_id = $1`
-	rows, err := r.db.QueryContext(ctx, query, docID)
+	rows, err := r.executor.QueryContext(ctx, query, docID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list events: %w", err)
 	}
@@ -197,7 +246,7 @@ func (r *postgresRepo) ListEventsBySigner(ctx context.Context, email string, fro
 	}
 	query += " ORDER BY signed_at DESC"
 
-	rows, err := r.db.QueryContext(ctx, query, args...)
+	rows, err := r.executor.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list events by signer: %w", err)
 	}
@@ -224,7 +273,7 @@ func (r *postgresRepo) SaveAnomalyScore(ctx context.Context, s AnomalyScore) err
 	}
 	query := `INSERT INTO anomaly_scores (id, sign_event_id, score, labels, created_at)
               VALUES ($1, $2, $3, $4, CASE WHEN $5 = '0001-01-01 00:00:00+00'::timestamptz THEN NOW() ELSE $5 END)`
-	_, err := r.db.ExecContext(ctx, query, s.ID, s.SignEventID, s.Score, s.Labels, s.CreatedAt)
+	_, err := r.executor.ExecContext(ctx, query, s.ID, s.SignEventID, s.Score, s.Labels, s.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("failed to save anomaly score: %w", err)
 	}
@@ -237,7 +286,7 @@ func (r *postgresRepo) ListAnomaliesByDocument(ctx context.Context, docID uuid.U
               JOIN sign_events s ON a.sign_event_id = s.id
               WHERE s.document_id = $1
               ORDER BY a.created_at DESC`
-	rows, err := r.db.QueryContext(ctx, query, docID)
+	rows, err := r.executor.QueryContext(ctx, query, docID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list anomalies by document: %w", err)
 	}
@@ -261,7 +310,7 @@ func (r *postgresRepo) ListAnomaliesBySigner(ctx context.Context, email string) 
               JOIN sign_events s ON a.sign_event_id = s.id
               WHERE s.signer_email = $1
               ORDER BY a.created_at DESC`
-	rows, err := r.db.QueryContext(ctx, query, email)
+	rows, err := r.executor.QueryContext(ctx, query, email)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list anomalies by signer: %w", err)
 	}
